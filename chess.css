@@ -137,6 +137,14 @@ h1 {
     font-size: 1.2em;
 }
 
+.stalemate-warning {
+    background: #d1ecf1 !important;
+    border-color: #17a2b8 !important;
+    color: #0c5460;
+    font-weight: bold;
+    font-size: 1.2em;
+}
+
 @keyframes pulse {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.05); }

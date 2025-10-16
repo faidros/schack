@@ -13,6 +13,7 @@ if (!isset($_SESSION['game']) || isset($_GET['reset'])) {
         'selectedSquare' => null,
         'gameOver' => false,
         'winner' => null,
+        'result' => null, // 'checkmate', 'stalemate', etc.
         'lastMove' => null, // För en passant
         'moveHistory' => [], // För rockad
         'enPassantTarget' => null // Rutan där en passant kan ske
@@ -170,14 +171,23 @@ function makeMove($from, $to) {
         $_SESSION['game']['currentPlayer'] = 
             $_SESSION['game']['currentPlayer'] === 'white' ? 'black' : 'white';
         
-        // Kontrollera schack och schackmatt för motståndaren
+        // Kontrollera schack, schackmatt och patt för motståndaren
         $opponentColor = $_SESSION['game']['currentPlayer'];
         if (isKingInCheck($opponentColor)) {
             error_log("Opponent king is in check!");
             if (isCheckmate($opponentColor)) {
                 $_SESSION['game']['gameOver'] = true;
                 $_SESSION['game']['winner'] = $currentColor;
+                $_SESSION['game']['result'] = 'checkmate';
                 error_log("CHECKMATE! Winner: " . $currentColor);
+            }
+        } else {
+            // Inte i schack, kontrollera patt
+            if (isStalemate($opponentColor)) {
+                $_SESSION['game']['gameOver'] = true;
+                $_SESSION['game']['winner'] = null; // Oavgjort
+                $_SESSION['game']['result'] = 'stalemate';
+                error_log("STALEMATE! Game is a draw.");
             }
         }
         
@@ -404,6 +414,38 @@ function isCheckmate($color) {
     }
     
     return true; // Schackmatt!
+}
+
+function isStalemate($color) {
+    // Patt = inte i schack men inga giltiga drag
+    if (isKingInCheck($color)) {
+        return false; // Står i schack, inte patt
+    }
+    
+    // Kolla om det finns några giltiga drag
+    $moves = getAllPossibleMoves($color);
+    
+    foreach ($moves as $move) {
+        // Simulera draget
+        $board = &$_SESSION['game']['board'];
+        $piece = $board[$move['from'][0]][$move['from'][1]];
+        $capturedPiece = $board[$move['to'][0]][$move['to'][1]];
+        
+        $board[$move['to'][0]][$move['to'][1]] = $piece;
+        $board[$move['from'][0]][$move['from'][1]] = null;
+        
+        $wouldBeInCheck = isKingInCheck($color);
+        
+        // Återställ draget
+        $board[$move['from'][0]][$move['from'][1]] = $piece;
+        $board[$move['to'][0]][$move['to'][1]] = $capturedPiece;
+        
+        if (!$wouldBeInCheck) {
+            return false; // Det finns minst ett giltigt drag
+        }
+    }
+    
+    return true; // Patt! Inga giltiga drag
 }
 
 function canCastle($from, $to, $isWhite) {
@@ -662,9 +704,15 @@ $playerColor = $_SESSION['playerColor'];
             </div>
             <?php endif; ?>
             <?php if ($_SESSION['game']['gameOver']): ?>
-            <div class="info-box checkmate-warning">
-                <strong>♔ SCHACKMATT! Vinnare: <?= $_SESSION['game']['winner'] === 'white' ? 'VIT' : 'SVART' ?></strong>
-            </div>
+                <?php if (isset($_SESSION['game']['result']) && $_SESSION['game']['result'] === 'stalemate'): ?>
+                <div class="info-box stalemate-warning">
+                    <strong>🤝 PATT! Oavgjort</strong>
+                </div>
+                <?php else: ?>
+                <div class="info-box checkmate-warning">
+                    <strong>♔ SCHACKMATT! Vinnare: <?= $_SESSION['game']['winner'] === 'white' ? 'VIT' : 'SVART' ?></strong>
+                </div>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
         
