@@ -42,6 +42,12 @@ if (!isset($_SESSION['game']) || isset($_GET['reset'])) {
     if (isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai' && $_SESSION['playerColor'] === 'black') {
         makeAIMove();
     }
+    
+    // Omdirigera för att ta bort reset-parametern från URL:en
+    if (isset($_GET['reset']) || isset($_GET['mode'])) {
+        header('Location: index.php');
+        exit;
+    }
 }
 
 // Hantera drag
@@ -136,7 +142,19 @@ function makeMove($from, $to) {
         if (!isset($_SESSION['game']['moveHistory'])) {
             $_SESSION['game']['moveHistory'] = [];
         }
-        $_SESSION['game']['moveHistory'][] = ['from' => $from, 'to' => $to, 'piece' => $piece];
+        
+        // Formatera draget för visning
+        $fromNotation = chr(97 + $from[1]) . (8 - $from[0]); // a-h, 1-8
+        $toNotation = chr(97 + $to[1]) . (8 - $to[0]);
+        $moveNotation = $fromNotation . '-' . $toNotation;
+        
+        $_SESSION['game']['moveHistory'][] = [
+            'from' => $from, 
+            'to' => $to, 
+            'piece' => $piece,
+            'notation' => $moveNotation,
+            'player' => $currentColor
+        ];
         
         // Kontrollera om draget sätter egen kung i schack
         $currentColor = $_SESSION['game']['currentPlayer'];
@@ -597,7 +615,7 @@ $playerColor = $_SESSION['playerColor'];
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Schack</title>
-    <link rel="stylesheet" href="chess.css">
+    <link rel="stylesheet" href="chess.css?v=2">
 </head>
 <body>
     <div class="container">
@@ -650,29 +668,64 @@ $playerColor = $_SESSION['playerColor'];
             <?php endif; ?>
         </div>
         
-        <div class="board-container">
-            <div id="chessboard" class="chessboard">
-                <?php for ($row = 0; $row < 8; $row++): ?>
-                    <?php for ($col = 0; $col < 8; $col++): ?>
-                        <?php
-                            $isLight = ($row + $col) % 2 === 0;
-                            $piece = $board[$row][$col];
-                            $pieceColor = $piece && ctype_upper($piece) ? 'white' : 'black';
-                        ?>
-                        <div class="square <?= $isLight ? 'light' : 'dark' ?>" 
-                             data-row="<?= $row ?>" 
-                             data-col="<?= $col ?>"
-                             draggable="false">
-                            <?php if ($piece): ?>
-                                <div class="piece <?= $pieceColor ?>" 
-                                     data-piece="<?= $piece ?>"
-                                     draggable="true">
-                                    <?= getPieceSymbol($piece) ?>
-                                </div>
-                            <?php endif; ?>
-                        </div>
+        <div class="game-container">
+            <div class="board-container">
+                <div id="chessboard" class="chessboard">
+                    <?php for ($row = 0; $row < 8; $row++): ?>
+                        <?php for ($col = 0; $col < 8; $col++): ?>
+                            <?php
+                                $isLight = ($row + $col) % 2 === 0;
+                                $piece = $board[$row][$col];
+                                $pieceColor = $piece && ctype_upper($piece) ? 'white' : 'black';
+                            ?>
+                            <div class="square <?= $isLight ? 'light' : 'dark' ?>" 
+                                 data-row="<?= $row ?>" 
+                                 data-col="<?= $col ?>"
+                                 draggable="false">
+                                <?php if ($piece): ?>
+                                    <div class="piece <?= $pieceColor ?>" 
+                                         data-piece="<?= $piece ?>"
+                                         draggable="true">
+                                        <?= getPieceSymbol($piece) ?>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endfor; ?>
                     <?php endfor; ?>
-                <?php endfor; ?>
+                </div>
+            </div>
+            
+            <div class="move-history-container">
+                <h3>📜 Draghistorik</h3>
+                <div class="move-history">
+                    <?php 
+                    $moveHistory = $_SESSION['game']['moveHistory'] ?? [];
+                    if (empty($moveHistory)): 
+                    ?>
+                        <p class="no-moves">Inga drag ännu...</p>
+                    <?php else: ?>
+                        <?php 
+                        for ($i = 0; $i < count($moveHistory); $i += 2): 
+                            $moveNumber = floor($i / 2) + 1;
+                            $whiteMove = $moveHistory[$i];
+                            $blackMove = isset($moveHistory[$i + 1]) ? $moveHistory[$i + 1] : null;
+                        ?>
+                            <div class="move-pair">
+                                <span class="move-number"><?= $moveNumber ?>.</span>
+                                <span class="move white-move">
+                                    <span class="piece-icon"><?= getPieceSymbol($whiteMove['piece']) ?></span>
+                                    <?= $whiteMove['notation'] ?>
+                                </span>
+                                <?php if ($blackMove): ?>
+                                <span class="move black-move">
+                                    <span class="piece-icon"><?= getPieceSymbol($blackMove['piece']) ?></span>
+                                    <?= $blackMove['notation'] ?>
+                                </span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endfor; ?>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
         
@@ -688,6 +741,6 @@ $playerColor = $_SESSION['playerColor'];
         const playerColor = <?= json_encode($playerColor) ?>;
         const currentPlayer = <?= json_encode($currentPlayer) ?>;
     </script>
-    <script src="chess.js"></script>
+    <script src="chess.js?v=2"></script>
 </body>
 </html>

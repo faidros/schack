@@ -19,7 +19,7 @@ body {
     border-radius: 20px;
     padding: 30px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 650px;
+    max-width: 1100px;
     width: 100%;
 }
 
@@ -158,10 +158,136 @@ h1 {
     color: #0c5460;
 }
 
-.board-container {
-    display: flex;
+.game-container {
+    display: grid;
+    grid-template-columns: 560px 300px;
+    gap: 30px;
     justify-content: center;
-    margin: 20px 0;
+    align-items: flex-start;
+    margin: 20px auto;
+    max-width: 920px;
+}
+
+.board-container {
+    width: 560px;
+    height: 560px;
+}
+
+.move-history-container {
+    background: #f8f9fa;
+    border-radius: 15px;
+    padding: 20px;
+    width: 300px;
+    height: 560px;
+    display: flex;
+    flex-direction: column;
+    border: 3px solid #dee2e6;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.move-history-container h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+    text-align: center;
+    font-size: 1.3em;
+    border-bottom: 2px solid #dee2e6;
+    padding-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.move-history {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    flex: 1;
+    padding-right: 5px;
+}
+
+.move-pair {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.move-number {
+    font-weight: bold;
+    color: #666;
+    min-width: 25px;
+}
+
+.move {
+    padding: 4px 12px;
+    border-radius: 5px;
+    font-weight: 600;
+    font-size: 0.95em;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+}
+
+.white-move {
+    background: linear-gradient(135deg, #f5f5f5, #e8e8e8);
+    color: #333;
+    border: 1px solid #ccc;
+}
+
+.black-move {
+    background: linear-gradient(135deg, #4a4a4a, #2c2c2c);
+    color: white;
+    border: 1px solid #555;
+}
+
+.piece-icon {
+    font-size: 1.2em;
+}
+
+.no-moves {
+    text-align: center;
+    color: #999;
+    font-style: italic;
+    padding: 20px;
+}
+
+.move-history-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.move-history-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.move-history-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.move-history-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+.move-history::-webkit-scrollbar {
+    width: 8px;
+}
+
+.move-history::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.move-history::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.move-history::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }
 
 .chessboard {
@@ -288,13 +414,30 @@ h1 {
     box-shadow: 0 5px 15px rgba(58, 123, 213, 0.4);
 }
 
-@media (max-width: 650px) {
-    .chessboard {
+@media (max-width: 950px) {
+    .game-container {
+        grid-template-columns: 1fr;
+        max-width: 560px;
+    }
+    
+    .board-container {
         width: 100%;
         height: auto;
         aspect-ratio: 1;
     }
     
+    .chessboard {
+        width: 100%;
+        height: 100%;
+    }
+    
+    .move-history-container {
+        width: 100%;
+        height: 300px;
+    }
+}
+
+@media (max-width: 650px) {
     .square {
         width: 100%;
         height: 100%;
@@ -306,5 +449,9 @@ h1 {
     
     h1 {
         font-size: 2em;
+    }
+    
+    .move-history-container {
+        height: 250px;
     }
 }
