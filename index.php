@@ -7,6 +7,17 @@ ini_set('log_errors', 1);
 
 // Initiera nytt spel om det inte finns eller om reset begärs
 if (!isset($_SESSION['game']) || isset($_GET['reset'])) {
+    // Om reset begärs utan parametrar, gå tillbaka till menyn
+    if (isset($_GET['reset']) && !isset($_GET['mode'])) {
+        unset($_SESSION['game']);
+        unset($_SESSION['game_started']);
+        unset($_SESSION['gameMode']);
+        unset($_SESSION['playerColor']);
+        unset($_SESSION['aiLevel']);
+        header('Location: index.php');
+        exit;
+    }
+    
     $_SESSION['game'] = [
         'board' => initializeBoard(),
         'currentPlayer' => 'white',
@@ -25,6 +36,13 @@ if (!isset($_SESSION['game']) || isset($_GET['reset'])) {
         $_SESSION['game_started'] = true; // Markera att spelet har startat
     } elseif (!isset($_SESSION['gameMode'])) {
         $_SESSION['gameMode'] = '2player';
+    }
+    
+    // Hantera AI-nivå
+    if (isset($_GET['level'])) {
+        $_SESSION['aiLevel'] = (int)$_GET['level'];
+    } elseif (!isset($_SESSION['aiLevel'])) {
+        $_SESSION['aiLevel'] = 1; // Standard nivå 1
     }
     
     // Hantera färgval
@@ -565,28 +583,111 @@ function getAllPossibleMoves($color) {
 
 function evaluateMove($move) {
     $board = $_SESSION['game']['board'];
+    $aiLevel = $_SESSION['aiLevel'] ?? 1;
     $score = 0;
     
-    // Värdera tagna pjäser
-    $targetPiece = $board[$move['to'][0]][$move['to'][1]];
-    if ($targetPiece) {
-        $pieceValues = [
-            'p' => 10, 'n' => 30, 'b' => 30, 
-            'r' => 50, 'q' => 90, 'k' => 900
-        ];
-        $score += $pieceValues[strtolower($targetPiece)] ?? 0;
+    // Nivå 1: Enkel strategi - bara materiellt värde och lite slump
+    if ($aiLevel === 1) {
+        // Värdera tagna pjäser
+        $targetPiece = $board[$move['to'][0]][$move['to'][1]];
+        if ($targetPiece) {
+            $pieceValues = [
+                'p' => 10, 'n' => 30, 'b' => 30, 
+                'r' => 50, 'q' => 90, 'k' => 900
+            ];
+            $score += $pieceValues[strtolower($targetPiece)] ?? 0;
+        }
+        
+        // Lite bonus för central kontroll
+        $centerDistance = abs($move['to'][0] - 3.5) + abs($move['to'][1] - 3.5);
+        $score += (7 - $centerDistance);
+        
+        return $score;
     }
     
-    // Föredra central kontroll
-    $centerDistance = abs($move['to'][0] - 3.5) + abs($move['to'][1] - 3.5);
-    $score += (7 - $centerDistance) * 2;
-    
-    // Flytta pjäser framåt tidigt i spelet
-    $pieceType = strtolower($move['piece']);
-    if ($pieceType === 'p' || $pieceType === 'n' || $pieceType === 'b') {
+    // Nivå 2: Avancerad strategi
+    if ($aiLevel === 2) {
+        // Värdera tagna pjäser med högre precision
+        $targetPiece = $board[$move['to'][0]][$move['to'][1]];
+        if ($targetPiece) {
+            $pieceValues = [
+                'p' => 100, 'n' => 320, 'b' => 330, 
+                'r' => 500, 'q' => 900, 'k' => 20000
+            ];
+            $score += $pieceValues[strtolower($targetPiece)] ?? 0;
+        }
+        
+        // Stark bonus för central kontroll
+        $centerDistance = abs($move['to'][0] - 3.5) + abs($move['to'][1] - 3.5);
+        $score += (7 - $centerDistance) * 5;
+        
+        // Positionsvärdering för olika pjäser
+        $pieceType = strtolower($move['piece']);
         $isWhite = ctype_upper($move['piece']);
-        $forwardBonus = $isWhite ? (6 - $move['to'][0]) : ($move['to'][0] - 1);
-        $score += $forwardBonus;
+        
+        // Bönder: föredra framåtrörelse
+        if ($pieceType === 'p') {
+            $forwardBonus = $isWhite ? (7 - $move['to'][0]) * 10 : ($move['to'][0]) * 10;
+            $score += $forwardBonus;
+        }
+        
+        // Springare: föredra centrala positioner
+        if ($pieceType === 'n') {
+            $knightCenterBonus = 0;
+            if (($move['to'][0] >= 2 && $move['to'][0] <= 5) && 
+                ($move['to'][1] >= 2 && $move['to'][1] <= 5)) {
+                $knightCenterBonus = 30;
+            }
+            $score += $knightCenterBonus;
+        }
+        
+        // Löpare: föredra långa diagonaler
+        if ($pieceType === 'b') {
+            $bishopDiagonalBonus = 0;
+            // Belöna positioner på långa diagonaler
+            if ($move['to'][0] === $move['to'][1] || 
+                $move['to'][0] + $move['to'][1] === 7) {
+                $bishopDiagonalBonus = 20;
+            }
+            $score += $bishopDiagonalBonus;
+        }
+        
+        // Drottning: håll tillbaka tidigt i spelet
+        if ($pieceType === 'q') {
+            $moveCount = count($_SESSION['game']['moveHistory'] ?? []);
+            if ($moveCount < 10) {
+                $score -= 20; // Straffa för att flytta ut drottningen för tidigt
+            }
+        }
+        
+        // Kung: säkerhet tidigt, aktivitet sent
+        if ($pieceType === 'k') {
+            $moveCount = count($_SESSION['game']['moveHistory'] ?? []);
+            if ($moveCount < 20) {
+                // Tidigt spel: stanna nära kanten för säkerhet
+                $edgeBonus = 0;
+                if ($move['to'][0] === 0 || $move['to'][0] === 7) {
+                    $edgeBonus = 30;
+                }
+                $score += $edgeBonus;
+            } else {
+                // Slutspel: centralisera kungen
+                $score += (4 - $centerDistance) * 20;
+            }
+        }
+        
+        // Kontrollera om draget sätter motståndaren i schack
+        $board[$move['to'][0]][$move['to'][1]] = $move['piece'];
+        $board[$move['from'][0]][$move['from'][1]] = null;
+        $opponentColor = $isWhite ? 'black' : 'white';
+        if (isKingInCheck($opponentColor)) {
+            $score += 50; // Bonus för schack
+        }
+        // Återställ
+        $board[$move['from'][0]][$move['from'][1]] = $move['piece'];
+        $board[$move['to'][0]][$move['to'][1]] = $targetPiece;
+        
+        return $score;
     }
     
     return $score;
@@ -627,13 +728,21 @@ function makeAIMove() {
     }
     
     // Utvärdera och välj bästa draget
-    $bestScore = -1000;
+    $aiLevel = $_SESSION['aiLevel'] ?? 1;
+    $bestScore = -100000;
     $bestMove = null;
     
     foreach ($validMoves as $move) {
         $score = evaluateMove($move);
-        // Lägg till lite slumpmässighet
-        $score += rand(-5, 5);
+        
+        // Lägg till slumpmässighet baserat på nivå
+        if ($aiLevel === 1) {
+            // Nivå 1: Mycket slump (kan göra ganska dåliga drag)
+            $score += rand(-50, 50);
+        } else if ($aiLevel === 2) {
+            // Nivå 2: Lite slump (spelar mer konsekvent)
+            $score += rand(-10, 10);
+        }
         
         if ($score > $bestScore) {
             $bestScore = $score;
@@ -668,10 +777,21 @@ $playerColor = $_SESSION['playerColor'];
                 <h2>Välj spelläge</h2>
                 
                 <h3>🤖 Spela mot Dator</h3>
+                <p style="margin: 10px 0; font-size: 0.9em; color: #666;">
+                    <strong>Nivå 1:</strong> Nybörjare - Gör ibland dåliga drag<br>
+                    <strong>Nivå 2:</strong> Avancerad - Spelar mer strategiskt
+                </p>
+                <div style="margin-bottom: 15px;">
+                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 1</h4>
+                    <a href="?reset=1&mode=ai&level=1&color=white" class="btn btn-white">Spela Vit</a>
+                    <a href="?reset=1&mode=ai&level=1&color=black" class="btn btn-black">Spela Svart</a>
+                    <a href="?reset=1&mode=ai&level=1&color=random" class="btn btn-random">Slumpa</a>
+                </div>
                 <div style="margin-bottom: 30px;">
-                    <a href="?reset=1&mode=ai&color=white" class="btn btn-white">Spela Vit mot Dator</a>
-                    <a href="?reset=1&mode=ai&color=black" class="btn btn-black">Spela Svart mot Dator</a>
-                    <a href="?reset=1&mode=ai&color=random" class="btn btn-random">Slumpa mot Dator</a>
+                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 2</h4>
+                    <a href="?reset=1&mode=ai&level=2&color=white" class="btn btn-white">Spela Vit</a>
+                    <a href="?reset=1&mode=ai&level=2&color=black" class="btn btn-black">Spela Svart</a>
+                    <a href="?reset=1&mode=ai&level=2&color=random" class="btn btn-random">Slumpa</a>
                 </div>
                 
                 <h3>👥 Två Spelare</h3>
@@ -686,7 +806,11 @@ $playerColor = $_SESSION['playerColor'];
         <div class="game-info">
             <div class="info-box">
                 <strong>Spelläge:</strong> 
-                <?= (isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai') ? '🤖 Mot Dator' : '👥 Två Spelare' ?>
+                <?php if (isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai'): ?>
+                    🤖 Mot Dator (Nivå <?= $_SESSION['aiLevel'] ?? 1 ?>)
+                <?php else: ?>
+                    👥 Två Spelare
+                <?php endif; ?>
             </div>
             <div class="info-box">
                 <strong>Du spelar:</strong> 
