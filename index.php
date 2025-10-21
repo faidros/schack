@@ -112,25 +112,37 @@ function makeMove($from, $to) {
         $isWhitePiece = ctype_upper($piece);
         $pieceType = strtolower($piece);
         
+        // Spara original state för eventuell återställning
+        $capturedPiece = $board[$to[0]][$to[1]];
+        $originalEnPassant = $_SESSION['game']['enPassantTarget'];
+        $capturedEnPassantPawn = null;
+        
         // Hantera en passant
         if ($pieceType === 'p' && $_SESSION['game']['enPassantTarget']) {
             $epTarget = $_SESSION['game']['enPassantTarget'];
             if ($to[0] === $epTarget[0] && $to[1] === $epTarget[1]) {
                 // Ta bort den tagna bonden
                 $captureRow = $isWhitePiece ? $to[0] + 1 : $to[0] - 1;
+                $capturedEnPassantPawn = $board[$captureRow][$to[1]];
                 $board[$captureRow][$to[1]] = null;
             }
         }
         
         // Hantera rockad
+        $rookFrom = null;
+        $rookTo = null;
         if ($pieceType === 'k' && abs($to[1] - $from[1]) === 2) {
             // Kort rockad (O-O)
             if ($to[1] === 6) {
+                $rookFrom = [$from[0], 7];
+                $rookTo = [$from[0], 5];
                 $board[$from[0]][5] = $board[$from[0]][7]; // Flytta torn
                 $board[$from[0]][7] = null;
             }
             // Lång rockad (O-O-O)
             else if ($to[1] === 2) {
+                $rookFrom = [$from[0], 0];
+                $rookTo = [$from[0], 3];
                 $board[$from[0]][3] = $board[$from[0]][0]; // Flytta torn
                 $board[$from[0]][0] = null;
             }
@@ -167,20 +179,42 @@ function makeMove($from, $to) {
         $toNotation = chr(97 + $to[1]) . (8 - $to[0]);
         $moveNotation = $fromNotation . '-' . $toNotation;
         
-        $_SESSION['game']['moveHistory'][] = [
-            'from' => $from, 
-            'to' => $to, 
-            'piece' => $piece,
-            'notation' => $moveNotation,
-            'player' => $currentColor
-        ];
+        // Kontrollera om detta exakta drag redan finns som senaste drag (förhindra dubletter)
+        $lastHistoryMove = end($_SESSION['game']['moveHistory']);
+        $isDuplicate = $lastHistoryMove && 
+                       $lastHistoryMove['notation'] === $moveNotation && 
+                       $lastHistoryMove['piece'] === $piece;
+        
+        if (!$isDuplicate) {
+            $_SESSION['game']['moveHistory'][] = [
+                'from' => $from, 
+                'to' => $to, 
+                'piece' => $piece,
+                'notation' => $moveNotation,
+                'player' => $currentColor
+            ];
+        }
         
         // Kontrollera om draget sätter egen kung i schack
         $currentColor = $_SESSION['game']['currentPlayer'];
         if (isKingInCheck($currentColor)) {
-            // Ogiltigt drag - återställ
+            // Ogiltigt drag - återställ ALLT
             $board[$from[0]][$from[1]] = $piece;
-            $board[$to[0]][$to[1]] = null;
+            $board[$to[0]][$to[1]] = $capturedPiece;
+            $_SESSION['game']['enPassantTarget'] = $originalEnPassant;
+            
+            // Återställ en passant-tagen bonde
+            if ($capturedEnPassantPawn) {
+                $captureRow = $isWhitePiece ? $to[0] + 1 : $to[0] - 1;
+                $board[$captureRow][$to[1]] = $capturedEnPassantPawn;
+            }
+            
+            // Återställ rockad
+            if ($rookFrom && $rookTo) {
+                $board[$rookFrom[0]][$rookFrom[1]] = $board[$rookTo[0]][$rookTo[1]];
+                $board[$rookTo[0]][$rookTo[1]] = null;
+            }
+            
             error_log("Move puts own king in check - invalid");
             return false;
         }
@@ -287,6 +321,11 @@ function isValidMove($from, $to, $piece) {
         case 'k': // Kung
             // Normal kungrörelse
             if ($rowDiff <= 1 && $colDiff <= 1) {
+                // Kontrollera att kungen inte flyttar till en hotad ruta
+                $opponentColor = $isWhitePiece ? 'black' : 'white';
+                if (isSquareUnderAttack($to, $opponentColor)) {
+                    return false; // Kungen får inte flytta till hotad ruta
+                }
                 return true;
             }
             // Rockad
@@ -690,6 +729,221 @@ function evaluateMove($move) {
         return $score;
     }
     
+    // Nivå 3: Expert - Mycket avancerad strategi
+    if ($aiLevel === 3) {
+        $pieceType = strtolower($move['piece']);
+        $isWhite = ctype_upper($move['piece']);
+        $opponentColor = $isWhite ? 'black' : 'white';
+        $moveCount = count($_SESSION['game']['moveHistory'] ?? []);
+        
+        // 1. MATERIELLT VÄRDE - Med högsta precision
+        $targetPiece = $board[$move['to'][0]][$move['to'][1]];
+        if ($targetPiece) {
+            $pieceValues = [
+                'p' => 100, 'n' => 320, 'b' => 330, 
+                'r' => 500, 'q' => 900, 'k' => 20000
+            ];
+            $score += $pieceValues[strtolower($targetPiece)] ?? 0;
+        }
+        
+        // 2. KONTROLL AV CENTRALA RUTOR (e4, d4, e5, d5)
+        $centralSquares = [[3,3], [3,4], [4,3], [4,4]]; // d4, e4, d5, e5
+        foreach ($centralSquares as $sq) {
+            if ($move['to'][0] === $sq[0] && $move['to'][1] === $sq[1]) {
+                $score += 40; // Stark bonus för central kontroll
+            }
+        }
+        
+        // 3. ALLMÄN CENTRAL KONTROLL
+        $centerDistance = abs($move['to'][0] - 3.5) + abs($move['to'][1] - 3.5);
+        $score += (7 - $centerDistance) * 8;
+        
+        // 4. PJÄSSPECIFIKA POSITIONER
+        
+        // Bönder: avancerad bondevärdering
+        if ($pieceType === 'p') {
+            $row = $move['to'][0];
+            $col = $move['to'][1];
+            
+            // Framåtrörelse belönas starkt
+            $forwardBonus = $isWhite ? (7 - $row) * 15 : ($row) * 15;
+            $score += $forwardBonus;
+            
+            // Centrala bönder är mer värdefulla
+            if ($col >= 2 && $col <= 5) {
+                $score += 20;
+            }
+            
+            // Bönder nära förvandling är mycket värdefulla
+            if (($isWhite && $row === 1) || (!$isWhite && $row === 6)) {
+                $score += 200; // Nästan drottning!
+            }
+            
+            // Undvik isolerade bönder (förenklat)
+            $hasNeighbor = false;
+            if ($col > 0 && $board[$row][$col - 1] && strtolower($board[$row][$col - 1]) === 'p' && 
+                ctype_upper($board[$row][$col - 1]) === $isWhite) {
+                $hasNeighbor = true;
+            }
+            if ($col < 7 && $board[$row][$col + 1] && strtolower($board[$row][$col + 1]) === 'p' && 
+                ctype_upper($board[$row][$col + 1]) === $isWhite) {
+                $hasNeighbor = true;
+            }
+            if (!$hasNeighbor && $moveCount > 8) {
+                $score -= 15; // Straffa isolerade bönder
+            }
+        }
+        
+        // Springare: optimala positioner
+        if ($pieceType === 'n') {
+            // Föredra den utvidgade mittenzonen
+            if (($move['to'][0] >= 2 && $move['to'][0] <= 5) && 
+                ($move['to'][1] >= 2 && $move['to'][1] <= 5)) {
+                $score += 50;
+            }
+            
+            // Undvik kanten
+            if ($move['to'][0] === 0 || $move['to'][0] === 7 || 
+                $move['to'][1] === 0 || $move['to'][1] === 7) {
+                $score -= 30;
+            }
+            
+            // Tidig utveckling
+            if ($moveCount < 15) {
+                $developmentBonus = $isWhite ? (7 - $move['from'][0]) : $move['from'][0];
+                $score += $developmentBonus * 8;
+            }
+        }
+        
+        // Löpare: långa diagonaler och utveckling
+        if ($pieceType === 'b') {
+            // Stora diagonaler
+            if ($move['to'][0] === $move['to'][1] || 
+                $move['to'][0] + $move['to'][1] === 7) {
+                $score += 35;
+            }
+            
+            // Utveckling tidigt
+            if ($moveCount < 15) {
+                $developmentBonus = $isWhite ? (7 - $move['from'][0]) : $move['from'][0];
+                $score += $developmentBonus * 6;
+            }
+        }
+        
+        // Torn: öppna linjer och rankerna
+        if ($pieceType === 'r') {
+            $col = $move['to'][1];
+            $row = $move['to'][0];
+            
+            // Kontrollera om linjen är öppen (inga egna bönder)
+            $openFile = true;
+            for ($r = 0; $r < 8; $r++) {
+                if ($board[$r][$col] && strtolower($board[$r][$col]) === 'p' && 
+                    ctype_upper($board[$r][$col]) === $isWhite) {
+                    $openFile = false;
+                    break;
+                }
+            }
+            if ($openFile) {
+                $score += 40; // Bonus för öppen linje
+            }
+            
+            // Sjunde raden är stark för torn
+            if (($isWhite && $row === 1) || (!$isWhite && $row === 6)) {
+                $score += 50;
+            }
+        }
+        
+        // Drottning: försiktig tidigt, dominant sent
+        if ($pieceType === 'q') {
+            if ($moveCount < 12) {
+                $score -= 40; // Stark straff för tidig drottningsutveckling
+                
+                // Men om det är för att ta en viktig pjäs, tillåt det
+                if ($targetPiece && strtolower($targetPiece) !== 'p') {
+                    $score += 35; // Kompensera något
+                }
+            } else {
+                // Senare i spelet: centralisera och dominera
+                $score += (5 - $centerDistance) * 15;
+            }
+        }
+        
+        // Kung: säkerhet vs aktivitet
+        if ($pieceType === 'k') {
+            if ($moveCount < 25) {
+                // Tidigt/Mellanspel: säkerhet först
+                if ($move['to'][0] === 0 || $move['to'][0] === 7) {
+                    $score += 50; // Stanna på basynja
+                }
+                
+                // Rockad är bra (implicit genom kingside/queenside positioner)
+                if (($isWhite && $move['to'][1] >= 5) || (!$isWhite && $move['to'][1] >= 5)) {
+                    $score += 30;
+                }
+            } else {
+                // Slutspel: aktivera kungen
+                $score += (5 - $centerDistance) * 30;
+            }
+        }
+        
+        // 5. SIMULERA DRAGET FÖR AVANCERAD ANALYS
+        $originalBoard = $board;
+        $board[$move['to'][0]][$move['to'][1]] = $move['piece'];
+        $board[$move['from'][0]][$move['from'][1]] = null;
+        
+        // Kontrollera om draget sätter motståndaren i schack
+        if (isKingInCheck($opponentColor)) {
+            $score += 80; // Stark bonus för schack
+            
+            // Extra bonus om det leder till schackmatt (förenklat check)
+            if (count(getAllPossibleMoves($opponentColor)) < 3) {
+                $score += 150; // Kan vara nära matt
+            }
+        }
+        
+        // 6. SÄKERHET - Kontrollera om pjäsen blir hotad efter draget
+        if (isSquareUnderAttack($move['to'], $opponentColor)) {
+            // Pjäsen är hotad på den nya positionen
+            $pieceValues = [
+                'p' => 100, 'n' => 320, 'b' => 330, 
+                'r' => 500, 'q' => 900, 'k' => 0 // Kung kan inte offras
+            ];
+            $ownValue = $pieceValues[$pieceType] ?? 0;
+            
+            // Om vi tar en pjäs, kontrollera om bytet är värt det
+            if ($targetPiece) {
+                $targetValue = $pieceValues[strtolower($targetPiece)] ?? 0;
+                if ($ownValue > $targetValue) {
+                    $score -= ($ownValue - $targetValue) / 2; // Straffa dåliga byten
+                }
+            } else {
+                // Pjäsen blir hotad utan att ta något
+                $score -= $ownValue / 3; // Straffa för att sätta pjäs i fara
+            }
+        }
+        
+        // 7. KONTROLLERA MOTSTÅNDARENS MÖJLIGHETER
+        // Om motståndaren kan ta något viktigt, reducera score
+        $opponentMoves = getAllPossibleMoves($opponentColor);
+        $opponentThreats = 0;
+        foreach ($opponentMoves as $oppMove) {
+            if ($board[$oppMove['to'][0]][$oppMove['to'][1]]) {
+                $threatenedPiece = strtolower($board[$oppMove['to'][0]][$oppMove['to'][1]]);
+                $pieceValues = ['p' => 10, 'n' => 32, 'b' => 33, 'r' => 50, 'q' => 90];
+                $opponentThreats += $pieceValues[$threatenedPiece] ?? 0;
+            }
+        }
+        if ($opponentThreats > 50) {
+            $score -= 20; // Motståndaren har starka hot
+        }
+        
+        // Återställ brädet
+        $board = $originalBoard;
+        
+        return $score;
+    }
+    
     return $score;
 }
 
@@ -742,6 +996,9 @@ function makeAIMove() {
         } else if ($aiLevel === 2) {
             // Nivå 2: Lite slump (spelar mer konsekvent)
             $score += rand(-10, 10);
+        } else if ($aiLevel === 3) {
+            // Nivå 3: Minimal slump (nästan perfekt)
+            $score += rand(-2, 2);
         }
         
         if ($score > $bestScore) {
@@ -779,19 +1036,26 @@ $playerColor = $_SESSION['playerColor'];
                 <h3>🤖 Spela mot Dator</h3>
                 <p style="margin: 10px 0; font-size: 0.9em; color: #666;">
                     <strong>Nivå 1:</strong> Nybörjare - Gör ibland dåliga drag<br>
-                    <strong>Nivå 2:</strong> Avancerad - Spelar mer strategiskt
+                    <strong>Nivå 2:</strong> Avancerad - Spelar mer strategiskt<br>
+                    <strong>Nivå 3:</strong> Expert - Mycket svår att besegra!
                 </p>
                 <div style="margin-bottom: 15px;">
-                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 1</h4>
+                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 1 🟢</h4>
                     <a href="?reset=1&mode=ai&level=1&color=white" class="btn btn-white">Spela Vit</a>
                     <a href="?reset=1&mode=ai&level=1&color=black" class="btn btn-black">Spela Svart</a>
                     <a href="?reset=1&mode=ai&level=1&color=random" class="btn btn-random">Slumpa</a>
                 </div>
-                <div style="margin-bottom: 30px;">
-                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 2</h4>
+                <div style="margin-bottom: 15px;">
+                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 2 🟡</h4>
                     <a href="?reset=1&mode=ai&level=2&color=white" class="btn btn-white">Spela Vit</a>
                     <a href="?reset=1&mode=ai&level=2&color=black" class="btn btn-black">Spela Svart</a>
                     <a href="?reset=1&mode=ai&level=2&color=random" class="btn btn-random">Slumpa</a>
+                </div>
+                <div style="margin-bottom: 30px;">
+                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 3 🔴</h4>
+                    <a href="?reset=1&mode=ai&level=3&color=white" class="btn btn-white">Spela Vit</a>
+                    <a href="?reset=1&mode=ai&level=3&color=black" class="btn btn-black">Spela Svart</a>
+                    <a href="?reset=1&mode=ai&level=3&color=random" class="btn btn-random">Slumpa</a>
                 </div>
                 
                 <h3>👥 Två Spelare</h3>
