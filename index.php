@@ -956,6 +956,138 @@ function evaluateMove($move) {
     return $score;
 }
 
+function minimax($depth, $alpha, $beta, $isMaximizing, $aiColor) {
+    // Bas-fall: djup 0 eller spelet är slut
+    if ($depth === 0) {
+        return evaluatePosition($aiColor);
+    }
+    
+    $currentColor = $isMaximizing ? $aiColor : ($aiColor === 'white' ? 'black' : 'white');
+    $moves = getAllPossibleMoves($currentColor);
+    
+    // Filtrera bort drag som sätter egen kung i schack
+    $validMoves = [];
+    foreach ($moves as $move) {
+        $board = &$_SESSION['game']['board'];
+        $piece = $board[$move['from'][0]][$move['from'][1]];
+        $capturedPiece = $board[$move['to'][0]][$move['to'][1]];
+        
+        // Simulera draget
+        $board[$move['to'][0]][$move['to'][1]] = $piece;
+        $board[$move['from'][0]][$move['from'][1]] = null;
+        
+        $inCheck = isKingInCheck($currentColor);
+        
+        // Återställ
+        $board[$move['from'][0]][$move['from'][1]] = $piece;
+        $board[$move['to'][0]][$move['to'][1]] = $capturedPiece;
+        
+        if (!$inCheck) {
+            $validMoves[] = $move;
+        }
+    }
+    
+    // Om inga giltiga drag, returnera utvärdering (schackmatt eller patt)
+    if (empty($validMoves)) {
+        if (isKingInCheck($currentColor)) {
+            // Schackmatt - mycket dåligt för den som är i schack
+            return $isMaximizing ? -99999 + $depth : 99999 - $depth;
+        } else {
+            // Patt - oavgjort
+            return 0;
+        }
+    }
+    
+    if ($isMaximizing) {
+        $maxEval = -999999;
+        foreach ($validMoves as $move) {
+            // Simulera draget
+            $board = &$_SESSION['game']['board'];
+            $piece = $board[$move['from'][0]][$move['from'][1]];
+            $capturedPiece = $board[$move['to'][0]][$move['to'][1]];
+            
+            $board[$move['to'][0]][$move['to'][1]] = $piece;
+            $board[$move['from'][0]][$move['from'][1]] = null;
+            
+            $eval = minimax($depth - 1, $alpha, $beta, false, $aiColor);
+            
+            // Återställ
+            $board[$move['from'][0]][$move['from'][1]] = $piece;
+            $board[$move['to'][0]][$move['to'][1]] = $capturedPiece;
+            
+            $maxEval = max($maxEval, $eval);
+            $alpha = max($alpha, $eval);
+            
+            // Alpha-beta pruning
+            if ($beta <= $alpha) {
+                break;
+            }
+        }
+        return $maxEval;
+    } else {
+        $minEval = 999999;
+        foreach ($validMoves as $move) {
+            // Simulera draget
+            $board = &$_SESSION['game']['board'];
+            $piece = $board[$move['from'][0]][$move['from'][1]];
+            $capturedPiece = $board[$move['to'][0]][$move['to'][1]];
+            
+            $board[$move['to'][0]][$move['to'][1]] = $piece;
+            $board[$move['from'][0]][$move['from'][1]] = null;
+            
+            $eval = minimax($depth - 1, $alpha, $beta, true, $aiColor);
+            
+            // Återställ
+            $board[$move['from'][0]][$move['from'][1]] = $piece;
+            $board[$move['to'][0]][$move['to'][1]] = $capturedPiece;
+            
+            $minEval = min($minEval, $eval);
+            $beta = min($beta, $eval);
+            
+            // Alpha-beta pruning
+            if ($beta <= $alpha) {
+                break;
+            }
+        }
+        return $minEval;
+    }
+}
+
+function evaluatePosition($aiColor) {
+    // Enkel positionsutvärdering baserad på materiellt värde och position
+    $board = $_SESSION['game']['board'];
+    $score = 0;
+    
+    $pieceValues = [
+        'p' => 100, 'n' => 320, 'b' => 330, 
+        'r' => 500, 'q' => 900, 'k' => 20000
+    ];
+    
+    for ($row = 0; $row < 8; $row++) {
+        for ($col = 0; $col < 8; $col++) {
+            $piece = $board[$row][$col];
+            if (!$piece) continue;
+            
+            $isWhite = ctype_upper($piece);
+            $pieceType = strtolower($piece);
+            $value = $pieceValues[$pieceType] ?? 0;
+            
+            // Lägg till positionsbonus (centralisering)
+            $centerDistance = abs($row - 3.5) + abs($col - 3.5);
+            $positionBonus = (7 - $centerDistance) * 5;
+            
+            // Addera eller subtrahera beroende på färg
+            if (($isWhite && $aiColor === 'white') || (!$isWhite && $aiColor === 'black')) {
+                $score += $value + $positionBonus;
+            } else {
+                $score -= $value + $positionBonus;
+            }
+        }
+    }
+    
+    return $score;
+}
+
 function makeAIMove() {
     $aiColor = $_SESSION['game']['currentPlayer'];
     $possibleMoves = getAllPossibleMoves($aiColor);
@@ -992,27 +1124,69 @@ function makeAIMove() {
     
     // Utvärdera och välj bästa draget
     $aiLevel = $_SESSION['aiLevel'] ?? 1;
-    $bestScore = -100000;
+    $bestScore = -999999;
     $bestMove = null;
     
-    foreach ($validMoves as $move) {
-        $score = evaluateMove($move);
+    // Nivå 4: Använd Minimax med alpha-beta pruning
+    if ($aiLevel === 4) {
+        $depth = 2; // Djup 2 som standard
         
-        // Lägg till slumpmässighet baserat på nivå
-        if ($aiLevel === 1) {
-            // Nivå 1: Mycket slump (kan göra ganska dåliga drag)
-            $score += rand(-50, 50);
-        } else if ($aiLevel === 2) {
-            // Nivå 2: Lite slump (spelar mer konsekvent)
-            $score += rand(-10, 10);
-        } else if ($aiLevel === 3) {
-            // Nivå 3: Minimal slump (nästan perfekt)
-            $score += rand(-2, 2);
+        // Öka djup i slutspel (färre pjäser)
+        $pieceCount = 0;
+        for ($r = 0; $r < 8; $r++) {
+            for ($c = 0; $c < 8; $c++) {
+                if ($_SESSION['game']['board'][$r][$c]) $pieceCount++;
+            }
+        }
+        if ($pieceCount <= 10) {
+            $depth = 3; // Djupare sökning i slutspel
         }
         
-        if ($score > $bestScore) {
-            $bestScore = $score;
-            $bestMove = $move;
+        foreach ($validMoves as $move) {
+            // Simulera draget
+            $board = &$_SESSION['game']['board'];
+            $piece = $board[$move['from'][0]][$move['from'][1]];
+            $capturedPiece = $board[$move['to'][0]][$move['to'][1]];
+            
+            $board[$move['to'][0]][$move['to'][1]] = $piece;
+            $board[$move['from'][0]][$move['from'][1]] = null;
+            
+            // Använd minimax för att utvärdera draget
+            $score = minimax($depth - 1, -999999, 999999, false, $aiColor);
+            
+            // Återställ
+            $board[$move['from'][0]][$move['from'][1]] = $piece;
+            $board[$move['to'][0]][$move['to'][1]] = $capturedPiece;
+            
+            // Minimal slump även på nivå 4
+            $score += rand(-1, 1);
+            
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestMove = $move;
+            }
+        }
+    } else {
+        // Nivå 1-3: Använd befintlig utvärdering
+        foreach ($validMoves as $move) {
+            $score = evaluateMove($move);
+            
+            // Lägg till slumpmässighet baserat på nivå
+            if ($aiLevel === 1) {
+                // Nivå 1: Mycket slump (kan göra ganska dåliga drag)
+                $score += rand(-50, 50);
+            } else if ($aiLevel === 2) {
+                // Nivå 2: Lite slump (spelar mer konsekvent)
+                $score += rand(-10, 10);
+            } else if ($aiLevel === 3) {
+                // Nivå 3: Minimal slump (nästan perfekt)
+                $score += rand(-2, 2);
+            }
+            
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestMove = $move;
+            }
         }
     }
     
@@ -1052,7 +1226,8 @@ $playerColor = $_SESSION['playerColor'];
                 <p style="margin: 10px 0; font-size: 0.9em; color: #666;">
                     <strong>Nivå 1:</strong> Nybörjare - Gör ibland dåliga drag<br>
                     <strong>Nivå 2:</strong> Avancerad - Spelar mer strategiskt<br>
-                    <strong>Nivå 3:</strong> Expert - Mycket svår att besegra!
+                    <strong>Nivå 3:</strong> Expert - Mycket svår att besegra!<br>
+                    <strong>Nivå 4:</strong> Mästare - Minimax AI, ser 2-3 drag framåt!
                 </p>
                 <div style="margin-bottom: 15px;">
                     <h4 style="margin: 10px 0; font-size: 1em;">Nivå 1 🟢</h4>
@@ -1066,11 +1241,17 @@ $playerColor = $_SESSION['playerColor'];
                     <a href="?reset=1&mode=ai&level=2&color=black" class="btn btn-black">Spela Svart</a>
                     <a href="?reset=1&mode=ai&level=2&color=random" class="btn btn-random">Slumpa</a>
                 </div>
-                <div style="margin-bottom: 30px;">
+                <div style="margin-bottom: 15px;">
                     <h4 style="margin: 10px 0; font-size: 1em;">Nivå 3 🔴</h4>
                     <a href="?reset=1&mode=ai&level=3&color=white" class="btn btn-white">Spela Vit</a>
                     <a href="?reset=1&mode=ai&level=3&color=black" class="btn btn-black">Spela Svart</a>
                     <a href="?reset=1&mode=ai&level=3&color=random" class="btn btn-random">Slumpa</a>
+                </div>
+                <div style="margin-bottom: 30px;">
+                    <h4 style="margin: 10px 0; font-size: 1em;">Nivå 4 ⚫</h4>
+                    <a href="?reset=1&mode=ai&level=4&color=white" class="btn btn-white">Spela Vit</a>
+                    <a href="?reset=1&mode=ai&level=4&color=black" class="btn btn-black">Spela Svart</a>
+                    <a href="?reset=1&mode=ai&level=4&color=random" class="btn btn-random">Slumpa</a>
                 </div>
                 
                 <h3>👥 Två Spelare</h3>
