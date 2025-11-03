@@ -27,7 +27,8 @@ if (!isset($_SESSION['game']) || isset($_GET['reset'])) {
         'result' => null, // 'checkmate', 'stalemate', etc.
         'lastMove' => null, // För en passant
         'moveHistory' => [], // För rockad
-        'enPassantTarget' => null // Rutan där en passant kan ske
+        'enPassantTarget' => null, // Rutan där en passant kan ske
+        'aiLastMove' => null // För att markera AI:ns senaste drag
     ];
     
     // Hantera spelläge (mot AI eller 2 spelare)
@@ -57,16 +58,19 @@ if (!isset($_SESSION['game']) || isset($_GET['reset'])) {
         $_SESSION['playerColor'] = (rand(0, 1) === 0) ? 'white' : 'black';
     }
     
-    // Om AI-läge och AI spelar vit, gör AI:s första drag
-    if (isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai' && $_SESSION['playerColor'] === 'black') {
-        makeAIMove();
-    }
-    
     // Omdirigera för att ta bort reset-parametern från URL:en
     if (isset($_GET['reset']) || isset($_GET['mode'])) {
         header('Location: index.php');
         exit;
     }
+}
+
+// Om AI-läge och AI spelar vit (och det inte redan är gjort), gör AI:s första drag
+if (isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai' && 
+    $_SESSION['playerColor'] === 'black' && 
+    $_SESSION['game']['currentPlayer'] === 'white' &&
+    empty($_SESSION['game']['moveHistory'])) {
+    makeAIMove();
 }
 
 // Hantera drag
@@ -102,11 +106,16 @@ function initializeBoard() {
     return $board;
 }
 
-function makeMove($from, $to) {
+function makeMove($from, $to, $isAIMove = false) {
     $board = &$_SESSION['game']['board'];
     $piece = $board[$from[0]][$from[1]];
     
     error_log("Making move from [" . $from[0] . "," . $from[1] . "] to [" . $to[0] . "," . $to[1] . "] with piece: " . ($piece ?? 'NULL'));
+    
+    // Rensa AI:ns drag-markering när spelaren (inte AI:n) gör ett drag
+    if (!$isAIMove) {
+        $_SESSION['game']['aiLastMove'] = null;
+    }
     
     if ($piece && isValidMove($from, $to, $piece)) {
         $isWhitePiece = ctype_upper($piece);
@@ -1008,8 +1017,14 @@ function makeAIMove() {
     }
     
     if ($bestMove) {
+        // Spara AI:ns drag för markering
+        $_SESSION['game']['aiLastMove'] = [
+            'from' => $bestMove['from'],
+            'to' => $bestMove['to']
+        ];
+        
         // Använd makeMove för att hantera alla regler korrekt
-        makeMove($bestMove['from'], $bestMove['to']);
+        makeMove($bestMove['from'], $bestMove['to'], true); // true = AI-drag
     }
 }
 
@@ -1113,8 +1128,21 @@ $playerColor = $_SESSION['playerColor'];
                                 $isLight = ($row + $col) % 2 === 0;
                                 $piece = $board[$row][$col];
                                 $pieceColor = $piece && ctype_upper($piece) ? 'white' : 'black';
+                                
+                                // Markera AI:ns senaste drag
+                                $isLastMoveFrom = false;
+                                $isLastMoveTo = false;
+                                $aiLastMove = $_SESSION['game']['aiLastMove'] ?? null;
+                                if ($aiLastMove) {
+                                    if ($aiLastMove['from'][0] === $row && $aiLastMove['from'][1] === $col) {
+                                        $isLastMoveFrom = true;
+                                    }
+                                    if ($aiLastMove['to'][0] === $row && $aiLastMove['to'][1] === $col) {
+                                        $isLastMoveTo = true;
+                                    }
+                                }
                             ?>
-                            <div class="square <?= $isLight ? 'light' : 'dark' ?>" 
+                            <div class="square <?= $isLight ? 'light' : 'dark' ?> <?= $isLastMoveFrom ? 'last-move-from' : '' ?> <?= $isLastMoveTo ? 'last-move-to' : '' ?>" 
                                  data-row="<?= $row ?>" 
                                  data-col="<?= $col ?>"
                                  draggable="false">
