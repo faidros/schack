@@ -1075,9 +1075,7 @@ $playerColor = $_SESSION['playerColor'];
                 
                 <h3>👥 Två Spelare</h3>
                 <div>
-                    <a href="?reset=1&mode=2player&color=white" class="btn btn-white">Spela Vit</a>
-                    <a href="?reset=1&mode=2player&color=black" class="btn btn-black">Spela Svart</a>
-                    <a href="?reset=1&mode=2player&color=random" class="btn btn-random">Slumpa</a>
+                    <a href="?reset=1&mode=2player&color=white" class="btn btn-white" style="min-width: 200px;">Starta Spel</a>
                 </div>
             </div>
         <?php else: ?>
@@ -1091,10 +1089,12 @@ $playerColor = $_SESSION['playerColor'];
                     👥 Två Spelare
                 <?php endif; ?>
             </div>
+            <?php if (isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai'): ?>
             <div class="info-box">
                 <strong>Du spelar:</strong> 
                 <?= $playerColor === 'white' ? '♔ Vit' : '♚ Svart' ?>
             </div>
+            <?php endif; ?>
             <div class="info-box">
                 <strong>Aktuell tur:</strong> 
                 <span class="current-turn <?= $currentPlayer ?>">
