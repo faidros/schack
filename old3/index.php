@@ -1,7 +1,7 @@
 <?php
 session_start();
 
-// Debug-loggning (avaktiverad, ta bort kommentarerna för att aktivera igen)
+// Debug-loggning (kommenterad ut, ta bort // för att aktivera)
 // ini_set('error_log', '/Users/micke/code/schack2/debug.log');
 // ini_set('log_errors', 1);
 
@@ -76,10 +76,10 @@ if (isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai' &&
 // Hantera drag
 if (isset($_POST['move'])) {
     $moveData = json_decode($_POST['move'], true);
-    error_log("Move received: " . print_r($moveData, true));
+    // error_log("Move received: " . print_r($moveData, true));
     if ($moveData) {
         $success = makeMove($moveData['from'], $moveData['to']);
-        error_log("Move success: " . ($success ? 'YES' : 'NO'));
+        // error_log("Move success: " . ($success ? 'YES' : 'NO'));
         
         // Om AI-läge, låt AI göra sitt drag efter spelarens drag
         if ($success && isset($_SESSION['gameMode']) && $_SESSION['gameMode'] === 'ai' && 
@@ -87,7 +87,7 @@ if (isset($_POST['move'])) {
             // Lägg till en liten paus så draget är synligt
             usleep(100000); // 0.1 sekund
             makeAIMove();
-            error_log("AI move completed");
+            // error_log("AI move completed");
         }
     }
 }
@@ -110,7 +110,7 @@ function makeMove($from, $to, $isAIMove = false) {
     $board = &$_SESSION['game']['board'];
     $piece = $board[$from[0]][$from[1]];
     
-    error_log("Making move from [" . $from[0] . "," . $from[1] . "] to [" . $to[0] . "," . $to[1] . "] with piece: " . ($piece ?? 'NULL'));
+    // error_log("Making move from [" . $from[0] . "," . $from[1] . "] to [" . $to[0] . "," . $to[1] . "] with piece: " . ($piece ?? 'NULL'));
     
     // Rensa AI:ns drag-markering när spelaren (inte AI:n) gör ett drag
     if (!$isAIMove) {
@@ -224,7 +224,7 @@ function makeMove($from, $to, $isAIMove = false) {
                 $board[$rookTo[0]][$rookTo[1]] = null;
             }
             
-            error_log("Move puts own king in check - invalid");
+            // error_log("Move puts own king in check - invalid");
             return false;
         }
         
@@ -235,12 +235,12 @@ function makeMove($from, $to, $isAIMove = false) {
         // Kontrollera schack, schackmatt och patt för motståndaren
         $opponentColor = $_SESSION['game']['currentPlayer'];
         if (isKingInCheck($opponentColor)) {
-            error_log("Opponent king is in check!");
+            // error_log("Opponent king is in check!");
             if (isCheckmate($opponentColor)) {
                 $_SESSION['game']['gameOver'] = true;
                 $_SESSION['game']['winner'] = $currentColor;
                 $_SESSION['game']['result'] = 'checkmate';
-                error_log("CHECKMATE! Winner: " . $currentColor);
+                // error_log("CHECKMATE! Winner: " . $currentColor);
             }
         } else {
             // Inte i schack, kontrollera patt
@@ -248,15 +248,15 @@ function makeMove($from, $to, $isAIMove = false) {
                 $_SESSION['game']['gameOver'] = true;
                 $_SESSION['game']['winner'] = null; // Oavgjort
                 $_SESSION['game']['result'] = 'stalemate';
-                error_log("STALEMATE! Game is a draw.");
+                // error_log("STALEMATE! Game is a draw.");
             }
         }
         
-        error_log("Move completed, new player: " . $_SESSION['game']['currentPlayer']);
+        // error_log("Move completed, new player: " . $_SESSION['game']['currentPlayer']);
         return true;
     }
     
-    error_log("Move validation failed");
+    // error_log("Move validation failed");
     return false;
 }
 
